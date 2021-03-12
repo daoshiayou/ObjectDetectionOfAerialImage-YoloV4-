@@ -1,0 +1,11 @@
+!nvidia-smi
+%cd /content/drive/MyDrive/pytorch-YOLOv4-master
+!pip install tensorboardX
+import tensorflow as tf
+tf.test.gpu_device_name()
+
+# 测试
+%run models.py 11 ./checkpoints/Yolov4_epoch20.pth data/0000002_00005_d_0000014.jpg 608 608 data/AerialImage.names
+
+# 训练
+%run train.py -l 0.001 -g 0 -pretrained /content/drive/MyDrive/pytorch-YOLOv4-master/Yolov4_epoch100.pth -classes 11 -dir ./data -train_label_path ./data/train.txt
