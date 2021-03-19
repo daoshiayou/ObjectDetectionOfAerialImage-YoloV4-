@@ -75,7 +75,7 @@ def bboxes_iou(bboxes_a, bboxes_b, xyxy=True, GIoU=False, DIoU=False, CIoU=False
         con_br = torch.max(bboxes_a[:, None, 2:], bboxes_b[:, 2:])
         # centerpoint distance squared
         rho2 = ((bboxes_a[:, None, 0] + bboxes_a[:, None, 2]) - (bboxes_b[:, 0] + bboxes_b[:, 2])) ** 2 / 4 + (
-            (bboxes_a[:, None, 1] + bboxes_a[:, None, 3]) - (bboxes_b[:, 1] + bboxes_b[:, 3])) ** 2 / 4
+                (bboxes_a[:, None, 1] + bboxes_a[:, None, 3]) - (bboxes_b[:, 1] + bboxes_b[:, 3])) ** 2 / 4
 
         w1 = bboxes_a[:, 2] - bboxes_a[:, 0]
         h1 = bboxes_a[:, 3] - bboxes_a[:, 1]
@@ -139,16 +139,20 @@ class Yolo_loss(nn.Module):
         self.n_classes = n_classes
         self.n_anchors = n_anchors
 
+        # TODO: 修改anchors
         self.anchors = [[12, 16], [19, 36], [40, 28], [36, 75], [
             76, 55], [72, 146], [142, 110], [192, 243], [459, 401]]
+        # self.anchors = [[2, 4], [3,9], [5,14], [8,6], [8,23], [14,13], [16,37], [26,23], [43,56]]
         self.anch_masks = [[0, 1, 2], [3, 4, 5], [6, 7, 8]]
         self.ignore_thre = 0.5
 
         self.masked_anchors, self.ref_anchors, self.grid_x, self.grid_y, self.anchor_w, self.anchor_h = [], [], [], [], [], []
 
         for i in range(3):
+            # 锚点框转换为相对原始图像的输出尺寸
             all_anchors_grid = [(w / self.strides[i], h / self.strides[i])
                                 for w, h in self.anchors]
+            # 当前预测框对应的锚点框真实尺寸
             masked_anchors = np.array([all_anchors_grid[j]
                                        for j in self.anch_masks[i]], dtype=np.float32)
             ref_anchors = np.zeros(
@@ -175,18 +179,23 @@ class Yolo_loss(nn.Module):
 
     def build_target(self, pred, labels, batchsize, fsize, n_ch, output_id):
         # target assignment
+        # 将不负责预测预测的box置0不参与loss计算
         tgt_mask = torch.zeros(batchsize, self.n_anchors, fsize,
                                fsize, 4 + self.n_classes).to(device=self.device)
+        # 标识包含目标的box
         obj_mask = torch.ones(batchsize, self.n_anchors,
                               fsize, fsize).to(device=self.device)
+        # 宽、高的缩放因子
         tgt_scale = torch.zeros(batchsize, self.n_anchors,
                                 fsize, fsize, 2).to(self.device)
+        # 将原始Dataset中获取到的labels转换为与模型预测相同的大小格式
         target = torch.zeros(batchsize, self.n_anchors,
                              fsize, fsize, n_ch).to(self.device)
 
         # labels = labels.cpu().data
         nlabel = (labels.sum(dim=2) > 0).sum(dim=1)  # number of objects
 
+        # 将box中心点换算为输出一致的大小
         truth_x_all = (labels[:, :, 2] + labels[:, :, 0]
                        ) / (self.strides[output_id] * 2)
         truth_y_all = (labels[:, :, 3] + labels[:, :, 1]
@@ -195,6 +204,7 @@ class Yolo_loss(nn.Module):
                        ) / self.strides[output_id]
         truth_h_all = (labels[:, :, 3] - labels[:, :, 1]
                        ) / self.strides[output_id]
+        # 哪个网格负责对此目标的预测
         truth_i_all = truth_x_all.to(torch.int16).cpu().numpy()
         truth_j_all = truth_y_all.to(torch.int16).cpu().numpy()
 
@@ -202,6 +212,7 @@ class Yolo_loss(nn.Module):
             n = int(nlabel[b])
             if n == 0:
                 continue
+            # 构造真实labels集合，创建box
             truth_box = torch.zeros(n, 4).to(self.device)
             truth_box[:n, 2] = truth_w_all[b, :n]
             truth_box[:n, 3] = truth_h_all[b, :n]
@@ -209,11 +220,14 @@ class Yolo_loss(nn.Module):
             truth_j = truth_j_all[b, :n]
 
             # calculate iou between truth and reference anchors
+            # 判断每个box与哪个anchor的IOU/CIOU值最大
+            # 若box与当前层的anchor尺寸匹配才在当前层进行预测, 否则应该在另外两层中进行预测
             anchor_ious_all = bboxes_iou(
                 truth_box.cpu(), self.ref_anchors[output_id], CIoU=True)
 
             # temp = bbox_iou(truth_box.cpu(), self.ref_anchors[output_id])
 
+            # 获取对应的最大IOU的anchor索引
             best_n_all = anchor_ious_all.argmax(dim=1)
             best_n = best_n_all % 3
             best_n_mask = ((best_n_all == self.anch_masks[output_id][0]) |
@@ -240,9 +254,9 @@ class Yolo_loss(nn.Module):
                     obj_mask[b, a, j, i] = 1
                     tgt_mask[b, a, j, i, :] = 1
                     target[b, a, j, i, 0] = truth_x_all[b, ti] - \
-                        truth_x_all[b, ti].to(torch.int16).to(torch.float)
+                                            truth_x_all[b, ti].to(torch.int16).to(torch.float)
                     target[b, a, j, i, 1] = truth_y_all[b, ti] - \
-                        truth_y_all[b, ti].to(torch.int16).to(torch.float)
+                                            truth_y_all[b, ti].to(torch.int16).to(torch.float)
                     target[b, a, j, i, 2] = torch.log(
                         truth_w_all[b, ti] / torch.Tensor(self.masked_anchors[output_id])[best_n[ti], 0] + 1e-16)
                     target[b, a, j, i, 3] = torch.log(
@@ -382,7 +396,7 @@ def train(model, device, config, epochs=5, batch_size=1, save_cp=True, log_step=
     scheduler = optim.lr_scheduler.LambdaLR(optimizer, burnin_schedule)
 
     criterion = Yolo_loss(device=device, batch=config.batch //
-                          config.subdivisions, n_classes=config.classes)
+                                               config.subdivisions, n_classes=config.classes)
     # scheduler = ReduceLROnPlateau(optimizer, mode='max', verbose=True, patience=6, min_lr=1e-7)
     # scheduler = CosineAnnealingWarmRestarts(optimizer, 0.001, 1e-6, 20)
 
@@ -397,7 +411,8 @@ def train(model, device, config, epochs=5, batch_size=1, save_cp=True, log_step=
         epoch_loss = 0
         epoch_step = 0
 
-        with tqdm(total=n_train, desc=f'Epoch {epoch + 1}/{epochs}', unit='img', ncols=50) as pbar:
+        with tqdm(total=n_train, desc=f'Epoch {epoch + 1}/{epochs}',
+                  postfix=f'loss: 0, epoch_loss: {epoch_loss:.2f}', unit='img', ncols=100) as pbar:
             for i, batch in enumerate(train_loader):
                 global_step += 1
                 epoch_step += 1
@@ -434,7 +449,7 @@ def train(model, device, config, epochs=5, batch_size=1, save_cp=True, log_step=
                     writer.add_scalar(
                         'train/loss_l2', loss_l2.item(), global_step)
                     writer.add_scalar('lr', scheduler.get_lr()[
-                                      0] * config.batch, global_step)
+                        0] * config.batch, global_step)
                     pbar.set_postfix(**{'loss (batch)': loss.item(), 'loss_xy': loss_xy.item(),
                                         'loss_wh': loss_wh.item(),
                                         'loss_obj': loss_obj.item(),
@@ -449,6 +464,7 @@ def train(model, device, config, epochs=5, batch_size=1, save_cp=True, log_step=
                                           loss_cls.item(), loss_l2.item(),
                                           scheduler.get_lr()[0] * config.batch))
 
+                pbar.postfix = f'loss: {loss.item():.2f}, epoch_loss: {epoch_loss:.2f}'
                 pbar.update(images.shape[0])
 
             if cfg.use_darknet_cfg:
@@ -537,10 +553,10 @@ def evaluate(model, data_loader, cfg, device, logger=None, **kwargs):
             boxes = boxes.squeeze(2).cpu().detach().numpy()
             # Transform [x1, y1, x2, y2] to [x1, y1, w, h]
             boxes[..., 2:] = boxes[..., 2:] - boxes[..., :2]
-            boxes[..., 0] = boxes[..., 0]*img_width
-            boxes[..., 1] = boxes[..., 1]*img_height
-            boxes[..., 2] = boxes[..., 2]*img_width
-            boxes[..., 3] = boxes[..., 3]*img_height
+            boxes[..., 0] = boxes[..., 0] * img_width
+            boxes[..., 1] = boxes[..., 1] * img_height
+            boxes[..., 2] = boxes[..., 2] * img_width
+            boxes[..., 3] = boxes[..., 3] * img_height
             boxes = torch.as_tensor(boxes, dtype=torch.float32)
             # confs = output[...,4:].copy()
             confs = confs.cpu().detach().numpy()
@@ -613,6 +629,7 @@ def init_logger(log_file=None, log_dir=None, log_level=logging.INFO, mode='w', s
     log_dir: 日志文件的文件夹路径
     mode: 'a', append; 'w', 覆盖原文件写入.
     """
+
     def get_date_str():
         now = datetime.datetime.now()
         return now.strftime('%Y-%m-%d_%H-%M-%S')
@@ -649,6 +666,7 @@ def _get_date_str():
 
 
 if __name__ == "__main__":
+    # 初始化日记、读取配置文件、选择计算环境
     logging = init_logger(log_dir='log')
     cfg = get_args(**Cfg)
     os.environ["CUDA_VISIBLE_DEVICES"] = cfg.gpu

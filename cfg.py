@@ -19,7 +19,7 @@ _BASE_DIR = os.path.dirname(os.path.abspath(__file__))
 Cfg = EasyDict()
 
 Cfg.use_darknet_cfg = False
-Cfg.cfgfile = os.path.join(_BASE_DIR, 'cfg', 'yolov4-tiny.cfg')
+Cfg.cfgfile = os.path.join(_BASE_DIR, 'cfg', 'yolov4.cfg')
 
 Cfg.batch = 64
 Cfg.subdivisions = 16
@@ -33,7 +33,7 @@ Cfg.saturation = 1.5
 Cfg.exposure = 1.5
 Cfg.hue = .1
 
-Cfg.learning_rate = 0.00261
+Cfg.learning_rate = 0.0001
 Cfg.burn_in = 1000
 Cfg.max_batches = 500500
 Cfg.steps = [400000, 450000]
